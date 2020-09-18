@@ -531,7 +531,7 @@ class LeCartCustom(LeBasecart):
 		# if (not product_ext_rel) or (product_ext_rel['result'] != 'success'):
 		# 	return response_error()
 		# product_ext = self.sync_connector_object(product_ext, product_ext_rel)
-		# self.log(product_ext, "product_ext")
+		
 		return product_ext
 
 	def convert_product_export(self, product, products_ext):
@@ -587,6 +587,8 @@ class LeCartCustom(LeBasecart):
 		# product_data['tags'] = product_description_def['tag']
 		# url_product_image = 'http://www.iemotorsport.com/mm5/'
 		# check_thumbnail = False
+		product_data['thumb_image']['label'] = product['products_image']
+		product_data['thumb_image']['url'] = "http://localhost/customcart/" + str(product['products_image'])
 		# if product['thumbnail']!='':
 		# 	check_thumbnail = True
 		# 	product_data['thumb_image']['url'] = url_product_image
@@ -815,7 +817,6 @@ class LeCartCustom(LeBasecart):
 		if self._notice['config']['seo_301']:
 			detect_seo = self.detect_seo()
 			product_data['seo'] = getattr(self, 'products_' + detect_seo)(product, products_ext)
-		self.log(product_data, "product data")
 		return response_success(product_data)
 
 	def get_product_id_import(self, convert, product, products_ext):
@@ -1099,15 +1100,25 @@ class LeCartCustom(LeBasecart):
 		order_data = self.construct_order()
 		order_data['id'] = order['orders_id']
 		order_data['status'] = order['orders_status']
+		# currency = get_row_value_from_list_by_field(orders_ext['data']['currencies'], 'code', order['currency'], 'currencies_id')		
 		order_data['currency'] = order['currency']
 
 
 		order_total = get_list_from_list_by_field(orders_ext['data']['orders_payment'], 'orders_id', order[
 			'orders_id'])
-		# ot_tax = get_row_from_list_by_field(order_total, 'class', 'ot_tax')
-		# ot_shipping = get_row_from_list_by_field(order_total, 'class', 'ot_shipping')
-		# ot_subtotal = get_row_from_list_by_field(order_total, 'class', 'ot_subtotal')
-		# ot_total = get_row_from_list_by_field(order_total, 'class', 'ot_total')
+		ot_tax = get_row_from_list_by_field(order_total, 'class', 'ot_tax')
+		ot_shipping = get_row_from_list_by_field(order_total, 'class', 'ot_shipping')
+		ot_subtotal = get_row_from_list_by_field(order_total, 'class', 'ot_subtotal')
+		ot_total = get_row_from_list_by_field(order_total, 'class', 'ot_total')
+		if ot_subtotal:
+			order_data['subtotal']['title'] = ot_subtotal['title']
+			order_data['subtotal']['amount'] = ot_subtotal['value']
+			if ot_shipping:
+				order_data['shipping']['title'] = ot_shipping['title']
+				order_data['shipping']['amount'] = ot_shipping['value']
+			if ot_total:
+				order_data['total']['title'] = ot_total['title']
+				order_data['total']['amount'] = ot_total['value']
 		# if ot_tax:
 		# 	order_data['tax']['title'] = ot_tax['title']
 		# 	order_data['tax']['amount'] = ot_tax['value']
@@ -1115,16 +1126,21 @@ class LeCartCustom(LeBasecart):
 		# 		order_data['tax']['percent'] = to_decimal(ot_tax['value']) / to_decimal(ot_subtotal['value'])
 		# order_data['tax']['title'] = 'Tax'
 		# order_data['tax']['amount'] = get_value_by_key_in_dict(order, 'total_tax', 0.0000)
-		if order_total:
-			order_data['shipping']['title'] = order_total[0]['title']
-			order_data['shipping']['amount'] = order_total[0]['text']
+		# self.log(orders_ext, "order_ext")
+		# for value in order_total:
+		# 	if value['class'] is 'ot_subtotal':
+		# 		order_data['subtotal']['title'] = value['title']
+		# 		order_data['subtotal']['amount'] = value['value']
+		# 	elif value['class'] is 'ot_shipping':
+		# 		order_data['shipping']['title'] = value['title']
+		# 		order_data['shipping']['amount'] = value['value']    					
+		# 	elif value['class'] is 'ot_total':
+		# 		order_data['total']['title'] = value['title']
+		# 		order_data['total']['amount'] = value['value']    					
 		# order_data['discount']['title'] = 'Discount'
 		# order_data['discount']['amount'] = 0.0000
-		order_data['total']['title'] = 'Total'
-		order_data['total']['amount'] = get_value_by_key_in_dict(order, 'total', 0.0000)
-		order_data['subtotal']['title'] = 'Total products'
-		order_data['subtotal']['amount'] = get_value_by_key_in_dict(order, 'total', 0.0000)
-		order_data['currency'] = ''
+
+		order_data['currency'] = orders_ext['data']['currencies'][0]['code']
 		order_data['created_at'] = datetime.fromtimestamp(to_int(get_value_by_key_in_dict(order, 'date_purchased', 0))).strftime('%Y-%m-%d %H:%M:%S')
 		order_data['updated_at'] = get_current_time()
 
@@ -1259,7 +1275,7 @@ class LeCartCustom(LeBasecart):
 			order_item_total = to_decimal(order_item_subtotal) + to_decimal(order_item_tax)
 			order_item = self.construct_order_item()
 			#order_item = self.addConstructDefault(order_item)
-			order_item['id'] = order_product['orders_products_id']
+			order_item['id'] = order_product['orders_id']
 			order_item['code'] = order_product['products_upc_code']
 			order_item['product']['id'] = order_product['orders_products_id']
 			order_item['product']['name'] = order_product['products_name']

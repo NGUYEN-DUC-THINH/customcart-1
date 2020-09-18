@@ -3451,19 +3451,61 @@ class LeCartWoocommerce(LeCartWordpress):
 			'post_modified_gmt': convert['description'],
 			'post_content_filtered': '',
 			# 'post_parent': '0',
-			# 'menu_order': '0',
+			'menu_order': '0',
 			'post_type': 'product',
+			'post_name': self.sanitize_title(convert['name']),
+			# 'post_excerpt': '<img class="alignnone size-medium wp-image-2461" src="{}" />'.format(convert['thumb_image']['url'])
 		}
 		id_product = self.import_product_data_connector(self.create_insert_query_connector('posts', posts), True, convert['id'])
-		if convert['manage_stock'] == 'true':
-    			stock = 'yes'
+		# thump_post = {
+		# 	'post_author': 1,
+		# 	'post_date': convert['created_at'],
+		# 	'post_date_gmt': convert['updated_at'],
+		# 	'post_title': convert['thumb_image']['label'],
+		# 	'post_status': 'inherit',
+		# 	'comment_status': 'open',
+		# 	'ping_status': 'closed',
+		# 	'post_name': convert['thumb_image']['label'],
+		# 	'post_modified': convert['updated_at'],
+		# 	'post_modified_gmt': convert['description'],
+		# 	'post_parent': id_product,
+		# 	'guid': "http://localhost/wordpress/wp-content/uploads/2020/09/" + convert['thumb_image']['label'],
+		# 	'menu_order': '0',
+		# 	'post_type': 'attachment',
+		# 	'post_mime_type': 'image/jpeg',
+		# }
+		# id_thump = self.import_product_data_connector(self.create_insert_query_connector('posts', thump_post))
+		queries = {
+			'type': 'update',
+			'query': "UPDATE wp_posts SET guid = 'http://localhost/wordpress/?post_type=product&#038;p={}' WHERE ID = {}".format(to_str(id_product),to_str(id_product))
+		}
+		self.get_connector_data(self.get_connector_url('query'), {'query': json.dumps(queries)})
+		
+		# if convert['qty'] > 0:
+    	# 		stock = 'yes'
+		# else:
+    	# 		stock = 'no'
+		# url = "2020/09/" + convert['thumb_image']['label']
+		# self.wp_image(path=url,convert=convert)
+		if int(convert['qty']) > 0:
+    			is_stock = 'instock' 
 		else:
-    			stock = 'no'
-		if convert['is_in_stock'] == 'true':
-    			is_stock = 'yes'
-		else:
-    			is_stock = 'no'
+    			is_stock = 'outofstock'
 		posts_meta = [
+			# {
+			# 	'post_id': id_thump,
+			# 	'meta_key': '_wp_attached_file',
+			# 	'meta_value': "2020/09/" + convert['thumb_image']['label'],
+			# },
+			# {
+			# 	'post_id': id_thump,
+			# 	'meta_key': '_wp_attachment_metadata',
+			# },
+			# {
+			# 	'post_id': id_product,
+			# 	'meta_key': '_thumbnail_id',
+			# 	'meta_value': id_thump,
+			# },
 			{
 				'post_id': id_product,
 				'meta_key': '_edit_last',
@@ -3492,7 +3534,7 @@ class LeCartWoocommerce(LeCartWordpress):
 			{
 				'post_id': id_product,
 				'meta_key': '_manage_stock',
-				'meta_value': stock
+				'meta_value': 'yes'
 			},
 			{
 				'post_id': id_product,
@@ -3539,8 +3581,17 @@ class LeCartWoocommerce(LeCartWordpress):
 				'meta_key': '_price',
 				'meta_value': convert['price']
 			},
+			{
+				'post_id': id_product,
+				'meta_key': '_stock',
+				'meta_value': convert['qty']
+			}
 		]
-
+		query_product_type = {
+			'type': 'select',
+			'query': 'SELECT * FROM _DBPRF_term_taxonomy WHERE taxonomy = "product_type"'
+		}
+		id_product_type = self.select_data_connector(query_product_type, 'id_product_type')['data'][0]['term_taxonomy_id']
 		for meta in posts_meta:
     			self.import_product_data_connector(self.create_insert_query_connector('postmeta', meta), True, convert['id'])
 		
@@ -3550,10 +3601,10 @@ class LeCartWoocommerce(LeCartWordpress):
 			'type' : 'select',
 			'query': 'SELECT * FROM _DBPRF_term_taxonomy WHERE term_id = ' + to_str(id_categories),
 		}
-		category_term_rela = self.select_data_connector(query, 'id_category_term_rela')['data']
+		category_term_rela = self.select_data_connector(query, 'category_term_rela')['data']
 		term1_relationships = {
 				'object_id': id_product,
-				'term_taxonomy_id': 261
+				'term_taxonomy_id': id_product_type
 				}
 		self.import_product_data_connector(self.create_insert_query_connector('term_relationships', term1_relationships))
 		term2_relationships = {
@@ -3561,8 +3612,20 @@ class LeCartWoocommerce(LeCartWordpress):
 				'term_taxonomy_id': category_term_rela[0]['term_taxonomy_id']
 			}
 		self.import_product_data_connector(self.create_insert_query_connector('term_relationships', term2_relationships))	
-			
-			
+		if int(convert['qty']) > 0:
+			stock_status = 'instock' 
+		else:
+    			stock_status = 'outofstock'
+		product_meta_lookup = {
+			'product_id': id_product,
+			'sku': convert['sku'],
+			'min_price': convert['price'],
+			'max_price': convert['price'],
+			'stock_status': stock_status,
+			'tax_status': 'taxable',
+			'stock_quantity': convert['qty']
+		}
+		self.import_product_data_connector(self.create_insert_query_connector('wc_product_meta_lookup', product_meta_lookup))
 		self.insert_map(self.TYPE_PRODUCT, convert['id'], id_product, convert['code'])
 		return response_success(id_product)
 
@@ -4209,7 +4272,317 @@ class LeCartWoocommerce(LeCartWordpress):
 
 	def order_import(self, convert, order, orders_ext):
 		# order_id = self.import_category_data_connector(self.create_insert_query_connector('wp_terms', category_term),True, data['id'])
-		# self.log(convert, "convert")
+		# order_id = self.get_map_field_by_src(self.TYPE_CUSTOMER, convert['id'], convert['code'])
+		post_order = {
+			'post_author': 1,
+			'post_date': convert['created_at'],
+			'post_date_gmt': convert['created_at'],
+			'post_title': 'Order &ndash;',
+			'post_status': 'wc-pending',
+			'comment_status': 'closed',
+			'ping_status': 'closed',
+			'post_modified': convert['updated_at'],
+			'post_modified_gmt': convert['updated_at'],
+			'post_parent': 0,
+			'menu_order': 0,
+			'post_type': 'shop_order',
+		}
+		order_id = self.import_order_data_connector(self.create_insert_query_connector('posts', post_order),True, convert['id'])
+		queries = {
+			'type': 'update',
+			'query': "UPDATE wp_posts SET guid = 'http://localhost/wordpress/?post_type=shop_order&#038;p={}' WHERE ID = {}".format(to_str(order_id),to_str(order_id))
+		}
+		self.get_connector_data(self.get_connector_url('query'), {'query': json.dumps(queries)})
+		billingadd = convert['billing_address']
+		shippingadd = convert['shipping_address']
+		post_meta_order = [
+			{
+				'post_id': order_id,
+				'meta_key': '_customer_user',
+				'meta_value': 0
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_order_currency',
+				'meta_value': convert['currency']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_order_shipping_tax',
+				'meta_value': 0
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_order_tax',
+				'meta_value': 0
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_order_total',
+				'meta_value': convert['total']['amount']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_order_version',
+				'meta_value': '4.5.2'
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_prices_include_tax',
+				'meta_value': 'no'
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_billing_address_index',
+				'meta_value': billingadd.get('first_name') + ' ' + billingadd.get('last_name') + ' ' 
+				+ billingadd.get('company') + billingadd.get('address_1') + ' ' + billingadd.get('address_2')
+				+ ' ' + billingadd.get('city') + ' ' + str(billingadd['state'].get('state_code')) + ' ' 
+				+ billingadd.get('postcode') + ' ' + str(billingadd['country'].get('country_code'))
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_shipping_address_index',
+				'meta_value': shippingadd['first_name'] + ' ' + shippingadd['last_name'] + ' ' 
+				+ shippingadd['company'] + shippingadd['address_1'] + ' ' + shippingadd['address_2']
+				+ ' ' + shippingadd['city'] + ' ' + str(shippingadd['state'].get('state_code')) + ' ' 
+				+ shippingadd['postcode'] + ' ' + str(shippingadd['country'].get('country_code'))
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_cart_discount',
+				'meta_value': 0
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_cart_discount_tax',
+				'meta_value': 0
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_order_shipping',
+				'meta_value': convert['shipping']['amount']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_payment_method',
+				'meta_value': convert['payment']['method']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_payment_method_title',
+				'meta_value': convert['payment']['method']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_billing_first_name',
+				'meta_value': billingadd['first_name']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_billing_last_name',
+				'meta_value': billingadd['last_name']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_billing_company',
+				'meta_value': billingadd['company']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_billing_address_1',
+				'meta_value': billingadd['address_1']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_billing_address_1',
+				'meta_value': billingadd['address_2']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_billing_city',
+				'meta_value': billingadd['city']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_billing_state',
+				'meta_value': billingadd['state']['state_code']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_billing_postcode',
+				'meta_value': billingadd['postcode']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_billing_country',
+				'meta_value': billingadd['country']['country_code']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_shipping_first_name',
+				'meta_value': shippingadd['first_name']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_shipping_last_name',
+				'meta_value': shippingadd['last_name']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_shipping_company',
+				'meta_value': shippingadd['company']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_shipping_address_1',
+				'meta_value': shippingadd['address_1']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_shipping_address_1',
+				'meta_value': shippingadd['address_2']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_shipping_city',
+				'meta_value': shippingadd['city']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_shipping_state',
+				'meta_value': shippingadd['state']['state_code']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_shipping_postcode',
+				'meta_value': shippingadd['postcode']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_shipping_country',
+				'meta_value': shippingadd['country']['country_code']
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_recorded_sales',
+				'meta_value': 'yes'
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_recorded_coupon_usage_counts',
+				'meta_value': 'yes'
+			},
+			{
+				'post_id': order_id,
+				'meta_key': '_order_stock_reduced',
+				'meta_value': 'yes'
+			},
+		]
+		for postterm in post_meta_order:
+			self.import_order_data_connector(self.create_insert_query_connector('postmeta', postterm))
+		# self.import_order_data_connector(self.create_insert_query_connector('posts', url_order),True, convert['id'])
+		for i in range(len(convert['items'])):
+    			
+			order_items1 = {
+				'order_item_name': convert['items'][i]['product']['name'],
+				'order_item_type': 'line_item',
+				'order_id': order_id,
+			}
+			order_items1_id = self.import_order_data_connector(self.create_insert_query_connector('woocommerce_order_items', order_items1))
+		i = 0
+		if convert['items']:
+			order_itemmeta = [
+				{
+				'order_item_id': order_items1_id,
+				'meta_key': '_product_id',
+				'meta_value': convert['items'][i]['product']['id']
+			},
+			{
+				'order_item_id': order_items1_id,
+				'meta_key': '_variation_id',
+				'meta_value': 0
+			},
+			{
+				'order_item_id': order_items1_id,
+				'meta_key': '_qty',
+				'meta_value': convert['items'][i]['qty']
+			},
+			{
+				'order_item_id': order_items1_id,
+				'meta_key': '_tax_class',
+				'meta_value': ''
+			},
+			{
+				'order_item_id': order_items1_id,
+				'meta_key': '_line_subtotal',
+				'meta_value': ''
+			},
+			{
+				'order_item_id': order_items1_id,
+				'meta_key': '_line_subtotal_tax',
+				'meta_value': 0
+			},
+			{
+				'order_item_id': order_items1_id,
+				'meta_key': '_line_total',
+				'meta_value': convert['items'][i]['price']
+			},
+			{
+				'order_item_id': order_items1_id,
+				'meta_key': '_line_tax',
+				'meta_value': 0
+			},
+			{
+				'order_item_id': order_items1_id,
+				'meta_key': '_line_tax_data',
+				'meta_value': 'a:2:{s:8:"subtotal";a:0:{}s:5:"total";a:0:{}}',
+			},
+			{
+				'order_item_id': order_items1_id,
+				'meta_key': '_reduced_stock',
+				'meta_value': convert['items'][i]['qty'],
+			},
+			]
+			for meta in order_itemmeta:
+				self.import_order_data_connector(self.create_insert_query_connector('woocommerce_order_itemmeta', meta))
+			i += 1
+		order_items2 = {
+			'order_item_name': convert['shipping']['title'],
+			'order_item_type': 'shipping',
+			'order_id': order_id
+		}
+		id_order_items2 = self.import_order_data_connector(self.create_insert_query_connector('woocommerce_order_items', order_items2))
+		order_item_meta = [
+			{
+				'order_item_id': id_order_items2,
+				'meta_key': 'method_id',
+				'meta_value': '',
+			},
+			{
+				'order_item_id': id_order_items2,
+				'meta_key': 'instance_id',
+				'meta_value': 0,
+			},
+			{
+				'order_item_id': id_order_items2,
+				'meta_key': 'cost',
+				'meta_value': convert['shipping']['amount'],
+			},
+			{
+				'order_item_id': id_order_items2,
+				'meta_key': 'total_tax',
+				'meta_value': 0,
+			},
+			{
+				'order_item_id': id_order_items2,
+				'meta_key': 'taxes',
+				'meta_value': 'a:1:{s:5:"total";a:0:{}}',
+			},
+		]
+		for item in order_item_meta:
+			self.import_order_data_connector(self.create_insert_query_connector('woocommerce_order_itemmeta', item))
+		# for order in order_items:
+    	# 		self.import_order_data_connector(self.create_insert_query_connector('woocommerce_order_items', order))
 		self.insert_map(self.TYPE_ORDER, convert['id'], order_id, convert['code'])
 		return response_success(order_id)
 
